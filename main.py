@@ -6,9 +6,100 @@ from os import system
 from platform import system as platform
 from datetime import date, timedelta
 
+class PickStocksView:
+    def __init__(self, frame, on_back, on_prev, on_next, on_search):
+        self.frame = frame
+        self.action_buttons = {}
+
+        ttk.Label(frame, text="Pick Stocks").pack(pady=5)
+
+        # ---- Search bar ----
+        search_frame = ttk.Frame(frame)
+        search_frame.pack(pady=5)
+
+        self.search_entry = ttk.Entry(search_frame, width=30)
+        self.search_entry.pack(side="left", padx=5)
+
+        ttk.Button(
+            search_frame,
+            text="Search",
+            command=lambda: on_search(self.search_entry.get())
+        ).pack(side="left")
+
+        # ---- Stocks table ----
+        columns = ("ticker", "price", "history", "action")
+        self.table = ttk.Treeview(
+            frame,
+            columns=columns,
+            show="headings",
+            height=10
+        )
+
+        self.table.heading("ticker", text="Ticker")
+        self.table.heading("price", text="Price")
+        self.table.heading("history", text="History")
+        self.table.heading("action", text="Action")
+
+        self.table.column("ticker", width=120)
+        self.table.column("price", width=100)
+        self.table.column("history", width=120)
+        self.table.column("action", width=120)
+
+        self.table.pack(fill="both", expand=True, pady=10)
+
+        self.table.bind("<Button-1>", self.on_click)
+
+        # ---- Paging + back ----
+        nav_frame = ttk.Frame(frame)
+        nav_frame.pack(pady=5)
+
+        self.prev_btn = ttk.Button(nav_frame, text="<- Prev", command=on_prev)
+        self.prev_btn.pack(side="left", padx=5)
+        self.next_btn = ttk.Button(nav_frame, text="Next ->", command=on_next)
+        self.next_btn.pack(side="left", padx=5)
+
+        ttk.Button(
+            frame,
+            text="Back to Portfolio",
+            command=on_back
+        ).pack(pady=5)
+
+    def clear(self):
+        for btn in self.action_buttons.values():
+            btn.destroy()
+        self.action_buttons.clear()
+
+        for row in self.table.get_children():
+            self.table.delete(row)
+
+    def add_stock(self, ticker, price):
+        display_price = f"${price}" if price is not None else "—"
+        self.table.insert(
+        "",
+        "end",
+        values=(ticker, display_price, "", "Buy")
+    )
+
+    def on_click(self, event):
+        region = self.table.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+
+        column = self.table.identify_column(event.x)
+        row = self.table.identify_row(event.y)
+
+        # Action column is column #4
+        if column == "#4" and row:
+            ticker = self.table.item(row, "values")[0]
+            print(f"Buy clicked for {ticker}")  # UI only for now
+
+
+    def update_nav_buttons(self, page, last_page):
+        self.prev_btn.config(state="normal" if page > 0 else "disabled")
+        self.next_btn.config(state="normal" if page < last_page else "disabled")
 
 class PortfolioView:
-    def __init__(self, frame, on_back):
+    def __init__(self, frame, on_back, on_pick_stocks):
         self.frame = frame
 
         ttk.Label(frame, text="Portfolio").pack(pady=5)
@@ -30,7 +121,20 @@ class PortfolioView:
 
         self.table.pack(fill="both", expand=True, pady=10)
 
-        ttk.Button(frame, text="Back to Dashboard", command=on_back).pack(pady=5)
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=5)
+
+        ttk.Button(
+                btn_frame,
+                text="Pick Stocks",
+                command=on_pick_stocks
+        ).pack(side="left", padx=5)
+
+        ttk.Button(
+                frame,
+                text="Back to Dashboard",
+                command=on_back
+        ).pack(side="left", padx=5)
 
     def clear(self):
         for row in self.table.get_children():
@@ -111,9 +215,6 @@ class Dashboard:
         selected = self.portfolio_table.focus()
         return selected  # this is p_id (or None)
 
-
-    
-
 class myGUI:
     def __init__(self, conn):
         self.conn = conn
@@ -191,9 +292,24 @@ class myGUI:
         self.portfolio_frame = ttk.Frame(self.root)
         self.portfolio_view = PortfolioView(
             self.portfolio_frame,
-            self.show_dashboard
+            self.show_dashboard,
+            self.show_pick_stocks
         )
 
+        self.stock_page = 0
+        self.stocks_per_page = 15
+        self.total_stocks = 0
+        self.last_stock_page = 0
+        self.stock_search_query = None
+
+        self.pick_stocks_frame = ttk.Frame(self.root)
+        self.pick_stocks_view = PickStocksView(
+            self.pick_stocks_frame,
+            self.show_portfolio,
+            self.prev_stock_page,
+            self.next_stock_page,
+            self.search_stocks
+        )
 
         self.root.bind("<Button-1>", self.clear_focus)
 
@@ -334,6 +450,7 @@ class myGUI:
 
     def show_portfolio(self):
         self.dashboardframe.pack_forget()
+        self.stock_search_query = None
         self.portfolio_frame.pack(pady=5, fill="both", expand=True)
 
     def load_portfolio_stocks(self, p_id):
@@ -389,17 +506,173 @@ class myGUI:
             cursor.execute(
                 """
                 SELECT money
-                FROM user_money
+                FROM users
                 WHERE username = %s
                 """,
                 (self.current_user,)
             )
             row = cursor.fetchone()
-            total = row["money"]
-            self.dashboard.money.config(text=f"Money: ${total}")
+            self.usermoney = row["money"]
+            self.dashboard.money.config(text=f"Money: ${self.usermoney}")
         finally:
             cursor.close()
 
+    def show_pick_stocks(self):
+        self.portfolio_frame.pack_forget()
+
+        self.stock_page = 0
+        self.update_stock_count()
+        self.load_stocks_page()
+
+        self.pick_stocks_frame.pack(pady=5, fill="both", expand=True)
+
+    def show_portfolio(self):
+        self.pick_stocks_frame.pack_forget()
+        self.dashboardframe.pack_forget()
+        self.portfolio_frame.pack(pady=5, fill="both", expand=True)
+
+    def load_stocks_page(self):
+        offset = self.stock_page * self.stocks_per_page
+
+        cursor = self.conn.cursor(dictionary=True)
+        try:
+            if self.stock_search_query:
+                cursor.execute(
+                    """
+                    SELECT
+                        s.ticker,
+                        (
+                            SELECT p.dollars
+                            FROM prices p
+                            WHERE p.ticker = s.ticker
+                              AND DATE(p.time) <= %s
+                            ORDER BY p.time DESC
+                            LIMIT 1
+                        ) AS price
+                    FROM stocks s
+                    WHERE s.ticker LIKE %s
+                    ORDER BY s.ticker
+                    LIMIT %s OFFSET %s
+                    """,
+                    (
+                        self.current_day,
+                        self.stock_search_query + "%",
+                        self.stocks_per_page,
+                        offset
+                    )
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT
+                        s.ticker,
+                        (
+                            SELECT p.dollars
+                            FROM prices p
+                            WHERE p.ticker = s.ticker
+                              AND DATE(p.time) <= %s
+                            ORDER BY p.time DESC
+                            LIMIT 1
+                        ) AS price
+                    FROM stocks s
+                    ORDER BY s.ticker
+                    LIMIT %s OFFSET %s
+                    """,
+                    (
+                        self.current_day,
+                        self.stocks_per_page,
+                        offset
+                    )
+                )
+
+            rows = cursor.fetchall()
+
+            self.pick_stocks_view.clear()
+            for row in rows:
+                self.pick_stocks_view.add_stock(
+                    row["ticker"],
+                    row["price"]
+                )
+        finally:
+            cursor.close()
+
+        self.pick_stocks_view.update_nav_buttons(
+            self.stock_page,
+            self.last_stock_page
+        )
+
+    def next_stock_page(self):
+        self.stock_page += 1
+        self.load_stocks_page()
+
+    def prev_stock_page(self):
+        if self.stock_page > 0:
+            self.stock_page -= 1
+            self.load_stocks_page()
+
+    def update_stock_count(self):
+        cursor = self.conn.cursor()
+        try:
+            if self.stock_search_query:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM stocks
+                    WHERE ticker LIKE %s
+                    """,
+                    (self.stock_search_query + "%",)
+                )
+            else:
+                cursor.execute("SELECT COUNT(*) FROM stocks")
+
+            (count,) = cursor.fetchone()
+            self.total_stocks = count
+            self.last_stock_page = max(
+                0,
+                (self.total_stocks - 1) // self.stocks_per_page
+            )
+        finally:
+            cursor.close()
+
+
+    def search_stocks(self, query):
+        query = query.strip().upper()
+
+        # Empty search = reset
+        if not query:
+            self.stock_search_query = None
+        else:
+            self.stock_search_query = query
+
+        self.stock_page = 0
+        self.update_stock_count()
+        self.load_stocks_page()
+
+    def update_user_money(conn, username, delta):
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                UPDATE users
+                SET money = money + %s
+                WHERE username = %s
+                """,
+                (delta, username)
+            )
+            conn.commit()
+        finally:
+            cursor.close()
+
+    def get_user_money(conn, username):
+        cursor = conn.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                "SELECT money FROM users WHERE username = %s",
+                (username,)
+            )
+            return cursor.fetchone()["money"]
+        finally:
+            cursor.close()
 
 # Configuration struct equivalent
 class DbConfig:
@@ -626,22 +899,35 @@ def ensure_schema_and_tables(conn, cfg: DbConfig):
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
-        cursor.execute(
-            """
-            CREATE VIEW IF NOT EXISTS user_money AS
-            SELECT
-                u.username,
-                COALESCE(SUM(p.money), 0) AS money
-            FROM users u
-            LEFT JOIN portfolios p
-                ON p.username = u.username
-            GROUP BY u.username
-            """
-        )
         conn.commit()
+        create_index_if_missing(conn, "idx_stocks_ticker", "stocks", "ticker")
+        create_index_if_missing(conn, "idx_prices_ticker_time", "prices", "ticker, time")
     except Error as e:
         print_sql_error(e, "ensure_schema_and_tables")
         raise
+    finally:
+        cursor.close()
+
+def create_index_if_missing(conn, index_name, table, columns):
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            SELECT COUNT(1)
+            FROM INFORMATION_SCHEMA.STATISTICS
+            WHERE table_schema = DATABASE()
+              AND table_name = %s
+              AND index_name = %s
+            """,
+            (table, index_name)
+        )
+        exists = cursor.fetchone()[0]
+
+        if not exists:
+            cursor.execute(
+                f"CREATE INDEX {index_name} ON {table}({columns})"
+            )
+            conn.commit()
     finally:
         cursor.close()
 
