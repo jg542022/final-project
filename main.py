@@ -657,7 +657,7 @@ class myGUI:
                 username = user_name,
                 name = user_name,
                 age = int(user_age),
-                current_day = date(2024, 1, 1)
+                current_day = date(2019, 1, 1)
         )
         if insert(self.conn, "users", u):
             self.current_user = user_name
