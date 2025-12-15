@@ -6,13 +6,175 @@ from os import system
 from platform import system as platform
 from datetime import date, timedelta
 
-class PickStocksView:
-    def __init__(self, frame, on_back, on_prev, on_next, on_search):
+class StoreItemsView:
+    def __init__(self, frame, on_back_to_shops, on_dashboard, on_inventory, on_buy):
         self.frame = frame
+        self.on_buy = on_buy
+        
+        # Store Name Label (updated dynamically)
+        self.title_label = ttk.Label(frame, text="Store")
+        self.title_label.pack(pady=5)
+
+        self.money_label = ttk.Label(frame, text="Money: $--")
+        self.money_label.pack(pady=5)
+
+        # ---- Items Table ----
+        columns = ("name", "price", "stock", "action")
+        self.table = ttk.Treeview(
+            frame,
+            columns=columns,
+            show="headings",
+            height=10
+        )
+
+        self.table.heading("name", text="Item Name")
+        self.table.heading("price", text="Price")
+        self.table.heading("stock", text="Stock")
+        self.table.heading("action", text="Action")
+
+        self.table.column("name", width=150)
+        self.table.column("price", width=80, anchor="e")
+        self.table.column("stock", width=60, anchor="center")
+        self.table.column("action", width=80, anchor="center")
+
+        self.table.pack(fill="both", expand=True, pady=10)
+
+        self.table.bind("<Button-1>", self.on_click)
+
+        # ---- Buttons ----
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=5)
+        
+        ttk.Button(
+            btn_frame,
+            text="<- Back to Shops",
+            command=on_back_to_shops
+        ).pack(side="left", padx=5)
+
+        ttk.Button(
+            btn_frame,
+            text="My Inventory",
+            command=on_inventory
+        ).pack(side="left", padx=5)
+
+        ttk.Button(
+            btn_frame,
+            text="Dashboard",
+            command=on_dashboard
+        ).pack(side="left", padx=5)
+
+    def clear(self):
+        for row in self.table.get_children():
+            self.table.delete(row)
+
+    def set_store_name(self, name):
+        self.title_label.config(text=f"Welcome to {name}")
+
+    def update_money(self, amount):
+        self.money_label.config(text=f"Money: ${amount}")
+
+    def add_item(self, item_id, name, price, stock):
+        status = "Buy" if stock > 0 else "Out of Stock"
+        
+        self.table.insert(
+            "", 
+            "end", 
+            iid=item_id, 
+            values=(name, f"${price}", stock, status)
+        )
+
+    def on_click(self, event):
+        region = self.table.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+        
+        column = self.table.identify_column(event.x)
+        # identify_row returns the 'iid' which we set to item_id
+        item_id = self.table.identify_row(event.y)
+        
+        # Action is column #4
+        if column == "#4" and item_id:
+            # Prevent clicking if it says "Out of Stock"
+            item_values = self.table.item(item_id, "values")
+            if item_values[3] == "Buy":
+                self.on_buy(item_id)
+
+class ShopView:
+    def __init__(self, frame, on_back, on_inventory, on_store_click):
+        self.frame = frame
+        self.on_store_click = on_store_click
+
+        ttk.Label(frame, text="Select a Store").pack(pady=5)
+
+        # Money Label
+        self.money_label = ttk.Label(frame, text="Money: $--")
+        self.money_label.pack(pady=5)
+
+        # ---- Stores Table ----
+        columns = ("id", "store_name")
+        self.table = ttk.Treeview(
+            frame,
+            columns=columns,
+            show="headings",
+            height=10
+        )
+
+        self.table.heading("id", text="ID")
+        self.table.heading("store_name", text="Store Name")
+
+        self.table.column("id", width=50, anchor="center")
+        self.table.column("store_name", width=200)
+
+        self.table.pack(fill="both", expand=True, pady=10)
+        
+        # Bind click event
+        self.table.bind("<Double-1>", self.on_double_click)
+
+        # ---- Buttons ----
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=5)
+
+        ttk.Button(
+            btn_frame,
+            text="My Inventory",
+            command=on_inventory
+        ).pack(side="left", padx=5)
+
+        ttk.Button(
+            btn_frame,
+            text="Back to Dashboard",
+            command=on_back
+        ).pack(side="left", padx=5)
+
+    def clear(self):
+        for row in self.table.get_children():
+            self.table.delete(row)
+
+    def add_store(self, store_id, name):
+        self.table.insert("", "end", values=(store_id, name))
+
+    def update_money(self, amount):
+        self.money_label.config(text=f"Money: ${amount}")
+
+    def on_double_click(self, event):
+        selected_item = self.table.focus()
+        if selected_item:
+            store_data = self.table.item(selected_item, "values")
+            # store_data is (store_id, store_name)
+            if store_data:
+                self.on_store_click(store_data[0], store_data[1])
+
+class PickStocksView:
+    def __init__(self, frame, on_back, on_prev, on_next, on_search, on_buy):
+        self.frame = frame
+        self.on_buy = on_buy
         self.action_buttons = {}
 
         ttk.Label(frame, text="Pick Stocks").pack(pady=5)
 
+        self.money_label = ttk.Label(frame, text="Money: $--")
+        self.money_label.pack(pady=5)
+    
         # ---- Search bar ----
         search_frame = ttk.Frame(frame)
         search_frame.pack(pady=5)
@@ -27,7 +189,7 @@ class PickStocksView:
         ).pack(side="left")
 
         # ---- Stocks table ----
-        columns = ("ticker", "price", "history", "action")
+        columns = ("ticker", "company", "price", "history", "action")
         self.table = ttk.Treeview(
             frame,
             columns=columns,
@@ -36,14 +198,16 @@ class PickStocksView:
         )
 
         self.table.heading("ticker", text="Ticker")
+        self.table.heading("company", text="Company Name")
         self.table.heading("price", text="Price")
         self.table.heading("history", text="History")
         self.table.heading("action", text="Action")
 
-        self.table.column("ticker", width=120)
-        self.table.column("price", width=100)
-        self.table.column("history", width=120)
-        self.table.column("action", width=120)
+        self.table.column("ticker", width=80)
+        self.table.column("company", width=150)
+        self.table.column("price", width=80)
+        self.table.column("history", width=100)
+        self.table.column("action", width=80)
 
         self.table.pack(fill="both", expand=True, pady=10)
 
@@ -72,12 +236,12 @@ class PickStocksView:
         for row in self.table.get_children():
             self.table.delete(row)
 
-    def add_stock(self, ticker, price):
+    def add_stock(self, ticker, company_name, price):
         display_price = f"${price}" if price is not None else "—"
         self.table.insert(
         "",
         "end",
-        values=(ticker, display_price, "", "Buy")
+        values=(ticker, company_name, display_price, "", "Buy")
     )
 
     def on_click(self, event):
@@ -88,24 +252,89 @@ class PickStocksView:
         column = self.table.identify_column(event.x)
         row = self.table.identify_row(event.y)
 
-        # Action column is column #4
-        if column == "#4" and row:
-            ticker = self.table.item(row, "values")[0]
-            print(f"Buy clicked for {ticker}")  # UI only for now
+        # Action column is column #5
+        if column == "#5" and row:
+            item = self.table.item(row, "values")
+            ticker = item[0]
+            price_str = item[2]
 
+            # Parse price (remove '$' and convert to int)
+            if price_str == "—":
+                print("Cannot buy stock with no price")
+                return
+            
+            try:
+                # Remove '$' and commas if present
+                price = int(float(price_str.replace('$', '').replace(',', '')))
+                self.on_buy(ticker, price) # Trigger the callback
+            except ValueError:
+                print("Error parsing price")
 
     def update_nav_buttons(self, page, last_page):
         self.prev_btn.config(state="normal" if page > 0 else "disabled")
         self.next_btn.config(state="normal" if page < last_page else "disabled")
 
-class PortfolioView:
-    def __init__(self, frame, on_back, on_pick_stocks):
+    def update_money(self, amount):
+        self.money_label.config(text=f"Money: ${amount}")
+
+class InventoryView:
+    def __init__(self, frame, on_back, on_shop):
         self.frame = frame
+
+        ttk.Label(frame, text="My Inventory").pack(pady=5)
+
+        # ---- Inventory Table ----
+        columns = ("item", "quantity")
+        self.table = ttk.Treeview(
+            frame,
+            columns=columns,
+            show="headings",
+            height=10
+        )
+
+        self.table.heading("item", text="Item Name")
+        self.table.heading("quantity", text="Quantity")
+
+        self.table.column("item", width=200)
+        self.table.column("quantity", width=100, anchor="center")
+
+        self.table.pack(fill="both", expand=True, pady=10)
+
+        # ---- Buttons ----
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=5)
+
+        ttk.Button(
+            btn_frame,
+            text="Go to Shop",
+            command=on_shop
+        ).pack(side="left", padx=5)
+
+        ttk.Button(
+            btn_frame,
+            text="Back to Dashboard",
+            command=on_back
+        ).pack(pady=5)
+
+    def clear(self):
+        for row in self.table.get_children():
+            self.table.delete(row)
+
+    def add_item(self, name, quantity):
+        self.table.insert("", "end", values=(name, quantity))
+
+class PortfolioView:
+    def __init__(self, frame, on_back, on_pick_stocks, on_sell):
+        self.frame = frame
+        self.on_sell = on_sell
 
         ttk.Label(frame, text="Portfolio").pack(pady=5)
 
+        self.money_label = ttk.Label(frame, text="Money: $--")
+        self.money_label.pack(pady=5)
+
         # ---- Stock table ----
-        columns = ("ticker", "shares")
+        columns = ("ticker", "company", "shares", "value", "action")
         self.table = ttk.Treeview(
             frame,
             columns=columns,
@@ -114,12 +343,19 @@ class PortfolioView:
         )
 
         self.table.heading("ticker", text="Ticker")
+        self.table.heading("company", text="Company Name")
         self.table.heading("shares", text="Shares")
+        self.table.heading("value", text="Value")
+        self.table.heading("action", text="Action")
 
-        self.table.column("ticker", width=120)
-        self.table.column("shares", width=100, anchor="e")
-
+        self.table.column("ticker", width=80)
+        self.table.column("company", width=150)
+        self.table.column("shares", width=80, anchor="e")
+        self.table.column("value", width=100, anchor="e")
+        self.table.column("action", width=100, anchor="center")
         self.table.pack(fill="both", expand=True, pady=10)
+
+        self.table.bind("<Button-1>", self.on_click)
 
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(pady=5)
@@ -140,13 +376,41 @@ class PortfolioView:
         for row in self.table.get_children():
             self.table.delete(row)
 
-    def add_stock(self, ticker, shares):
-        self.table.insert("", "end", values=(ticker, shares))
+    def add_stock(self, ticker, company_name, shares, price):
+        if price is not None:
+            total_value = shares * price
+            display_value = f"${total_value}"
+        else:
+            display_value = "—"
+            
+        self.table.insert(
+            "", 
+            "end", 
+            values=(ticker, company_name, shares, display_value, "Sell")
+        )
+
+    def on_click(self, event):
+        region = self.table.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+
+        column = self.table.identify_column(event.x)
+        row = self.table.identify_row(event.y)
+
+        # "Action" is column #5
+        if column == "#5" and row:
+            item = self.table.item(row, "values")
+            ticker = item[0]
+            # Call the sell callback
+            self.on_sell(ticker)
+
+    def update_money(self, amount):
+        self.money_label.config(text=f"Money: ${amount}")
 
 
 # Window GUI stuff
 class Dashboard:
-    def __init__(self, dframe, signout, on_portfolio_click, on_add_portfolio, on_next_day):
+    def __init__(self, dframe, signout, on_portfolio_click, on_add_portfolio, on_next_day, on_inventory, on_shop):
         self.dframe = dframe
         self.label = ttk.Label(self.dframe, text='Dashboard')
         self.label.pack(pady=5)
@@ -195,7 +459,18 @@ class Dashboard:
             command=on_next_day
         ).pack(side="left", padx=5)
 
+        ttk.Button(
+            btn_frame,
+            text="Shop",
+            command=on_shop
+        ).pack(side="left", padx=5)
 
+        ttk.Button(
+            btn_frame,
+            text="Inventory",
+            command=on_inventory
+        ).pack(side="left", padx=5)
+        
         self.signout_button = ttk.Button(self.dframe, text='signout', command=signout)
         self.signout_button.pack(pady=5)
 
@@ -286,14 +561,41 @@ class myGUI:
             self.signout,
             self.open_portfolio,
             self.show_add_portfolio_dialog,
-            self.next_day
+            self.next_day,
+            self.show_inventory,
+            self.show_shop
         )
 
         self.portfolio_frame = ttk.Frame(self.root)
         self.portfolio_view = PortfolioView(
             self.portfolio_frame,
             self.show_dashboard,
-            self.show_pick_stocks
+            self.show_pick_stocks,
+            self.sell_stock
+        )
+
+        self.shop_frame = ttk.Frame(self.root)
+        self.shop_view = ShopView(
+            self.shop_frame,
+            self.show_dashboard,
+            self.show_inventory,
+            self.open_store
+        )
+
+        self.inventory_frame = ttk.Frame(self.root)
+        self.inventory_view = InventoryView(
+            self.inventory_frame,
+            self.show_dashboard,
+            self.show_shop
+        )
+
+        self.store_items_frame = ttk.Frame(self.root)
+        self.store_items_view = StoreItemsView(
+            self.store_items_frame,
+            self.show_shop,       
+            self.show_dashboard,
+            self.show_inventory,
+            self.buy_item
         )
 
         self.stock_page = 0
@@ -308,7 +610,8 @@ class myGUI:
             self.show_portfolio,
             self.prev_stock_page,
             self.next_stock_page,
-            self.search_stocks
+            self.search_stocks,
+            self.buy_stock
         )
 
         self.root.bind("<Button-1>", self.clear_focus)
@@ -446,23 +749,36 @@ class myGUI:
 
     def show_dashboard(self):
         self.portfolio_frame.pack_forget()
+        self.store_items_frame.pack_forget()
+        self.inventory_frame.pack_forget()
+        self.pick_stocks_frame.pack_forget()
+        self.shop_frame.pack_forget()
+        self.load_portfolios(self.current_user)
         self.dashboardframe.pack(pady=5)
-
-    def show_portfolio(self):
-        self.dashboardframe.pack_forget()
-        self.stock_search_query = None
-        self.portfolio_frame.pack(pady=5, fill="both", expand=True)
 
     def load_portfolio_stocks(self, p_id):
         cursor = self.conn.cursor(dictionary=True)
         try:
             cursor.execute(
                 """
-                SELECT ticker, shares
-                FROM portfolio_shares
-                WHERE p_id = %s
+                SELECT 
+                    ps.ticker, 
+                    ps.shares,
+                    c.name as company_name,
+                    (
+                        SELECT p.dollars 
+                        FROM prices p 
+                        WHERE p.ticker = ps.ticker 
+                          AND p.time < DATE_ADD(%s, INTERVAL 1 DAY)
+                        ORDER BY p.time DESC 
+                        LIMIT 1
+                    ) as price
+                FROM portfolio_shares ps
+                JOIN stocks s ON ps.ticker = s.ticker
+                JOIN companies c ON s.company_id = c.company_id
+                WHERE ps.p_id = %s
                 """,
-                (p_id,)
+                (self.current_day, p_id)
             )
             rows = cursor.fetchall()
 
@@ -470,7 +786,9 @@ class myGUI:
             for row in rows:
                 self.portfolio_view.add_stock(
                     row["ticker"],
-                    row["shares"]
+                    row["company_name"], # Pass the new name
+                    row["shares"],
+                    row["price"]
                 )
         finally:
             cursor.close()
@@ -484,6 +802,7 @@ class myGUI:
         self.current_day += timedelta(days=1)
         self.update_day_label()
         self.save_current_day()
+        self.load_portfolios(self.current_user)
 
     def save_current_day(self):
         cursor = self.conn.cursor()
@@ -524,82 +843,63 @@ class myGUI:
         self.update_stock_count()
         self.load_stocks_page()
 
+        self.pick_stocks_view.update_money(self.usermoney)
+
         self.pick_stocks_frame.pack(pady=5, fill="both", expand=True)
 
     def show_portfolio(self):
         self.pick_stocks_frame.pack_forget()
         self.dashboardframe.pack_forget()
+
+        if hasattr(self, 'current_portfolio') and self.current_portfolio:
+            self.load_portfolio_stocks(self.current_portfolio)
+
+        self.portfolio_view.update_money(self.usermoney)
+        self.load_portfolios(self.current_user)
+
         self.portfolio_frame.pack(pady=5, fill="both", expand=True)
 
     def load_stocks_page(self):
         offset = self.stock_page * self.stocks_per_page
-
         cursor = self.conn.cursor(dictionary=True)
         try:
-            if self.stock_search_query:
-                cursor.execute(
-                    """
-                    SELECT
-                        s.ticker,
-                        (
-                            SELECT p.dollars
-                            FROM prices p
-                            WHERE p.ticker = s.ticker
-                              AND DATE(p.time) <= %s
-                            ORDER BY p.time DESC
-                            LIMIT 1
-                        ) AS price
-                    FROM stocks s
-                    WHERE s.ticker LIKE %s
-                    ORDER BY s.ticker
-                    LIMIT %s OFFSET %s
-                    """,
+            # Base query parts
+            # We select c.name as company_name
+            # We JOIN companies c ON s.company_id = c.company_id
+            sql = """
+                SELECT 
+                    s.ticker, 
+                    c.name as company_name,
                     (
-                        self.current_day,
-                        self.stock_search_query + "%",
-                        self.stocks_per_page,
-                        offset
-                    )
-                )
-            else:
-                cursor.execute(
-                    """
-                    SELECT
-                        s.ticker,
-                        (
-                            SELECT p.dollars
-                            FROM prices p
-                            WHERE p.ticker = s.ticker
-                              AND DATE(p.time) <= %s
-                            ORDER BY p.time DESC
-                            LIMIT 1
-                        ) AS price
-                    FROM stocks s
-                    ORDER BY s.ticker
-                    LIMIT %s OFFSET %s
-                    """,
-                    (
-                        self.current_day,
-                        self.stocks_per_page,
-                        offset
-                    )
-                )
-
+                        SELECT p.dollars 
+                        FROM prices p 
+                        WHERE p.ticker = s.ticker 
+                          AND p.time < DATE_ADD(%s, INTERVAL 1 DAY)
+                        ORDER BY p.time DESC 
+                        LIMIT 1
+                    ) AS price
+                FROM stocks s
+                JOIN companies c ON s.company_id = c.company_id
+                WHERE s.ticker LIKE %s
+                ORDER BY s.ticker
+                LIMIT %s OFFSET %s
+            """
+            
+            # (Logic for search query vs empty query remains, just update SQL)
+            search = (self.stock_search_query if self.stock_search_query else "") + "%"
+            
+            cursor.execute(sql, (self.current_day, search, self.stocks_per_page, offset))
             rows = cursor.fetchall()
 
             self.pick_stocks_view.clear()
             for row in rows:
                 self.pick_stocks_view.add_stock(
                     row["ticker"],
+                    row["company_name"],  # Pass the new name
                     row["price"]
                 )
         finally:
             cursor.close()
-
-        self.pick_stocks_view.update_nav_buttons(
-            self.stock_page,
-            self.last_stock_page
-        )
 
     def next_stock_page(self):
         self.stock_page += 1
@@ -674,6 +974,310 @@ class myGUI:
         finally:
             cursor.close()
 
+    def buy_stock(self, ticker, price):
+        # Validation checks
+        if not hasattr(self, 'current_portfolio') or not self.current_portfolio:
+            print("No portfolio selected.") 
+            self.l1['text'] = "Error: No portfolio selected."
+            return
+
+        if self.usermoney < price:
+            print(f"Insufficient funds. Need ${price}, have ${self.usermoney}")
+            self.l1['text'] = "Insufficient funds!"
+            return
+
+        cursor = self.conn.cursor()
+        try:
+            # 1. Deduct money from users table
+            cursor.execute(
+                "UPDATE users SET money = money - %s WHERE username = %s",
+                (price, self.current_user)
+            )
+
+            # 2. Add stock to portfolio_shares
+            # We use ON DUPLICATE KEY UPDATE to increment shares if the row exists
+            cursor.execute(
+                """
+                INSERT INTO portfolio_shares (p_id, ticker, shares)
+                VALUES (%s, %s, 1)
+                ON DUPLICATE KEY UPDATE shares = shares + 1
+                """,
+                (self.current_portfolio, ticker)
+            )
+
+            self.conn.commit()
+
+            # 3. Update local GUI state
+            self.usermoney -= price
+
+            self.dashboard.money.config(text=f"Money: ${self.usermoney}")
+
+            self.pick_stocks_view.update_money(self.usermoney)
+
+            self.l1['text'] = f"Bought 1 share of {ticker}!"
+            print(f"Successfully bought {ticker} for ${price}")
+
+        except Error as e:
+            self.conn.rollback()
+            print(f"Transaction failed: {e}")
+            self.l1['text'] = "Transaction failed."
+        finally:
+            cursor.close()
+
+    def sell_stock(self, ticker):
+        if not hasattr(self, 'current_portfolio') or not self.current_portfolio:
+            return
+
+        cursor = self.conn.cursor(dictionary=True)
+        try:
+            # 1. Get current price and shares owned
+            cursor.execute(
+                """
+                SELECT 
+                    ps.shares,
+                    (
+                        SELECT p.dollars FROM prices p 
+                        WHERE p.ticker = ps.ticker AND DATE(p.time) <= %s 
+                        ORDER BY p.time DESC LIMIT 1
+                    ) as price
+                FROM portfolio_shares ps
+                WHERE ps.p_id = %s AND ps.ticker = %s
+                """,
+                (self.current_day, self.current_portfolio, ticker)
+            )
+            row = cursor.fetchone()
+            
+            if not row or row['shares'] < 1:
+                print("Error: You don't own this stock.")
+                return
+            
+            price = row['price']
+            if price is None:
+                print("Error: Cannot sell stock with no price data.")
+                return
+
+            # 2. Perform Transaction
+            # Update User Money
+            cursor.execute(
+                "UPDATE users SET money = money + %s WHERE username = %s",
+                (price, self.current_user)
+            )
+
+            # Update Shares (Delete row if 0 shares remaining)
+            if row['shares'] == 1:
+                cursor.execute(
+                    "DELETE FROM portfolio_shares WHERE p_id = %s AND ticker = %s",
+                    (self.current_portfolio, ticker)
+                )
+            else:
+                cursor.execute(
+                    "UPDATE portfolio_shares SET shares = shares - 1 WHERE p_id = %s AND ticker = %s",
+                    (self.current_portfolio, ticker)
+                )
+
+            self.conn.commit()
+
+            # 3. Update UI
+            self.usermoney += price
+            self.portfolio_view.update_money(self.usermoney)
+            self.dashboard.money.config(text=f"Money: ${self.usermoney}")
+            self.l1['text'] = f"Sold 1 share of {ticker} for ${price}!"
+            
+            # Refresh table
+            self.load_portfolio_stocks(self.current_portfolio)
+
+        except Error as e:
+            self.conn.rollback()
+            print(f"Sell failed: {e}")
+            self.l1['text'] = "Sell transaction failed."
+        finally:
+            cursor.close()
+
+    def show_inventory(self):
+        self.dashboardframe.pack_forget()
+        self.portfolio_frame.pack_forget()
+        self.store_items_frame.pack_forget()
+        self.pick_stocks_frame.pack_forget()
+        self.shop_frame.pack_forget()
+        
+        self.load_inventory()
+
+        self.inventory_frame.pack(pady=5, fill="both", expand=True)
+
+    def load_inventory(self):
+        cursor = self.conn.cursor(dictionary=True)
+        try:
+            # Join user_inventory with items to get the name
+            cursor.execute(
+                """
+                SELECT i.name, ui.amount
+                FROM user_inventory ui
+                JOIN items i ON ui.item_id = i.item_id
+                WHERE ui.username = %s
+                  AND ui.amount > 0
+                ORDER BY i.name
+                """,
+                (self.current_user,)
+            )
+            rows = cursor.fetchall()
+
+            self.inventory_view.clear()
+            for row in rows:
+                self.inventory_view.add_item(
+                    row["name"],
+                    row["amount"]
+                )
+        except Error as e:
+            print(f"Failed to load inventory: {e}")
+        finally:
+            cursor.close()
+
+    def load_stores(self):
+        cursor = self.conn.cursor(dictionary=True)
+        try:
+            cursor.execute("SELECT store_id, name FROM stores ORDER BY name")
+            rows = cursor.fetchall()
+            
+            self.shop_view.clear()
+            for row in rows:
+                self.shop_view.add_store(row["store_id"], row["name"])
+                
+            # Update money display
+            self.shop_view.update_money(self.usermoney)
+        finally:
+            cursor.close()
+
+    def show_shop(self):
+        # Hide all other frames
+        self.dashboardframe.pack_forget()
+        self.portfolio_frame.pack_forget()
+        self.store_items_frame.pack_forget()
+        self.pick_stocks_frame.pack_forget()
+        self.inventory_frame.pack_forget()
+
+        self.load_stores()
+        self.shop_frame.pack(pady=5, fill="both", expand=True)
+
+    def open_store(self, store_id, store_name):
+        self.shop_frame.pack_forget()
+        
+        self.store_items_view.set_store_name(store_name)
+        self.load_store_items(store_id)
+        
+        self.store_items_frame.pack(pady=5, fill="both", expand=True)
+        
+        self.current_store_id = store_id
+
+    def load_store_items(self, store_id):
+        cursor = self.conn.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                """
+                SELECT i.item_id, i.name, iis.price, iis.num_in_stock
+                FROM items_in_store iis
+                JOIN items i ON iis.item_id = i.item_id
+                WHERE iis.store_id = %s
+                ORDER BY i.name
+                """,
+                (store_id,)
+            )
+            rows = cursor.fetchall()
+
+            self.store_items_view.clear()
+            for row in rows:
+                self.store_items_view.add_item(
+                    row["item_id"],
+                    row["name"],
+                    row["price"],
+                    row["num_in_stock"]
+                )
+            self.store_items_view.update_money(self.usermoney)
+        finally:
+            cursor.close()
+
+    def buy_item(self, item_id):
+        if not hasattr(self, 'current_store_id'):
+            return
+
+        cursor = self.conn.cursor(dictionary=True)
+        try:
+            # 1. Check Price and Stock from DB (to prevent stale data issues)
+            cursor.execute(
+                """
+                SELECT price, num_in_stock 
+                FROM items_in_store 
+                WHERE item_id = %s AND store_id = %s
+                """,
+                (item_id, self.current_store_id)
+            )
+            item = cursor.fetchone()
+            
+            if not item:
+                print("Item not found.")
+                return
+
+            price = item['price']
+            stock = item['num_in_stock']
+
+            # 2. Validation
+            if stock <= 0:
+                print("Item is out of stock.")
+                self.l1['text'] = "Item is out of stock!"
+                return
+            
+            if self.usermoney < price:
+                print("Insufficient funds.")
+                self.l1['text'] = "Insufficient funds!"
+                return
+
+            # 3. Perform Transaction
+            
+            # Deduct Money
+            cursor.execute(
+                "UPDATE users SET money = money - %s WHERE username = %s",
+                (price, self.current_user)
+            )
+
+            # Decrease Stock
+            cursor.execute(
+                """
+                UPDATE items_in_store 
+                SET num_in_stock = num_in_stock - 1 
+                WHERE item_id = %s AND store_id = %s
+                """,
+                (item_id, self.current_store_id)
+            )
+
+            # Add to User Inventory (Upsert)
+            cursor.execute(
+                """
+                INSERT INTO user_inventory (username, item_id, amount)
+                VALUES (%s, %s, 1)
+                ON DUPLICATE KEY UPDATE amount = amount + 1
+                """,
+                (self.current_user, item_id)
+            )
+
+            self.conn.commit()
+
+            # 4. Update UI
+            self.usermoney -= price
+            
+            # Update Dashboard/Global labels
+            self.dashboard.money.config(text=f"Money: ${self.usermoney}")
+            self.store_items_view.update_money(self.usermoney)
+            self.l1['text'] = "Purchase successful!"
+            
+            # Refresh the table (updates stock count)
+            self.load_store_items(self.current_store_id)
+
+        except Error as e:
+            self.conn.rollback()
+            print(f"Purchase failed: {e}")
+            self.l1['text'] = "Purchase failed."
+        finally:
+            cursor.close()
+
 # Configuration struct equivalent
 class DbConfig:
     def __init__(self,
@@ -720,9 +1324,9 @@ class Price:
         self.dollars = dollars
 
 class Company:
-    def __init__(self, company_id: int, employees: int):
+    def __init__(self, company_id: int, name: str):
         self.company_id = company_id
-        self.employees = employees
+        self.name = name
 
 class Portfolio_Share:
     def __init__(self, p_id: int, ticker: str, shares: int):
@@ -796,7 +1400,7 @@ def ensure_schema_and_tables(conn, cfg: DbConfig):
             """
             CREATE TABLE IF NOT EXISTS companies (
                 company_id INT PRIMARY KEY,
-                employees INT NOT NULL CHECK (employees >= 0)
+                name VARCHAR(100) NOT NULL DEFAULT 'Unknown'
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
@@ -897,6 +1501,100 @@ def ensure_schema_and_tables(conn, cfg: DbConfig):
                     REFERENCES items(item_id)
                     ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        cursor.execute("DROP FUNCTION IF EXISTS calc_portfolio_value")
+        cursor.execute(
+            """
+            CREATE FUNCTION calc_portfolio_value(param_p_id INT, param_date DATE) 
+            RETURNS INT
+            DETERMINISTIC
+            READS SQL DATA
+            BEGIN
+                DECLARE total_val INT;
+                
+                SELECT COALESCE(SUM(
+                    ps.shares * (
+                        SELECT pr.dollars 
+                        FROM prices pr 
+                        WHERE pr.ticker = ps.ticker 
+                          AND pr.time < DATE_ADD(param_date, INTERVAL 1 DAY)
+                        ORDER BY pr.time DESC 
+                        LIMIT 1
+                    )
+                ), 0) INTO total_val
+                FROM portfolio_shares ps
+                WHERE ps.p_id = param_p_id;
+                
+                RETURN total_val;
+            END
+            """
+        )
+        cursor.execute("DROP TRIGGER IF EXISTS trg_user_next_day")
+        cursor.execute(
+            """
+            CREATE TRIGGER trg_user_next_day
+            AFTER UPDATE ON users
+            FOR EACH ROW
+            BEGIN
+                IF OLD.current_day <> NEW.current_day THEN
+                    UPDATE portfolios 
+                    SET money = calc_portfolio_value(p_id, NEW.current_day)
+                    WHERE username = NEW.username;
+                END IF;
+            END
+            """
+        )
+        cursor.execute("DROP TRIGGER IF EXISTS trg_shares_insert")
+        cursor.execute(
+            """
+            CREATE TRIGGER trg_shares_insert
+            AFTER INSERT ON portfolio_shares
+            FOR EACH ROW
+            BEGIN
+                -- Get the user's date
+                DECLARE user_date DATE;
+                SELECT current_day INTO user_date FROM users 
+                WHERE username = (SELECT username FROM portfolios WHERE p_id = NEW.p_id);
+                
+                UPDATE portfolios 
+                SET money = calc_portfolio_value(NEW.p_id, user_date)
+                WHERE p_id = NEW.p_id;
+            END
+            """
+        )
+        cursor.execute("DROP TRIGGER IF EXISTS trg_shares_update")
+        cursor.execute(
+            """
+            CREATE TRIGGER trg_shares_update
+            AFTER UPDATE ON portfolio_shares
+            FOR EACH ROW
+            BEGIN
+                DECLARE user_date DATE;
+                SELECT current_day INTO user_date FROM users 
+                WHERE username = (SELECT username FROM portfolios WHERE p_id = NEW.p_id);
+                
+                UPDATE portfolios 
+                SET money = calc_portfolio_value(NEW.p_id, user_date)
+                WHERE p_id = NEW.p_id;
+            END
+            """
+        )
+        cursor.execute("DROP TRIGGER IF EXISTS trg_shares_delete")
+        cursor.execute(
+            """
+            CREATE TRIGGER trg_shares_delete
+            AFTER DELETE ON portfolio_shares
+            FOR EACH ROW
+            BEGIN
+                DECLARE user_date DATE;
+                SELECT current_day INTO user_date FROM users 
+                WHERE username = (SELECT username FROM portfolios WHERE p_id = OLD.p_id);
+                
+                UPDATE portfolios 
+                SET money = calc_portfolio_value(OLD.p_id, user_date)
+                WHERE p_id = OLD.p_id;
+            END
             """
         )
         conn.commit()
